@@ -1,0 +1,148 @@
+---
+version: '2'
+    
+volumes:
+  tsdb-access-admin-vol:
+    driver: local
+  tsdb-access-leader1-vol:
+    driver: local
+  tsdb-access-leader2-vol:
+    driver: local
+  tsdb-data1-vol:
+    driver: local
+  tsdb-data2-vol:
+    driver: local
+  tsdb-data3-vol:
+    driver: local
+  
+services:  
+  zookeeper:
+    image: confluentinc/cp-zookeeper:6.2.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  tsdb-access-admin:
+    build: ./postgres-13-alpine-timescale-patroni
+    image: tsdb-patroni
+    hostname: tsdb-access-admin
+    container_name: tsdb-access-admin
+    depends_on:
+      - zookeeper
+      - tsdb-data1
+      - tsdb-data2
+      - tsdb-data3
+    ports:
+      - "5433:5432"
+      - "8008:8008"
+    volumes:
+      - tsdb-access-admin-vol:/var/lib/postgresql/data
+      - ./trust-all.sh:/docker-entrypoint-initdb.d/666_trust-all.sh
+      - ./access-init.sh:/docker-entrypoint-initdb.d/777_access-init.sh
+      - ./configure-cluster.sql:/docker-entrypoint-initdb.d/888_configure-cluster.sql
+      - ./configure-patroni.sql:/docker-entrypoint-initdb.d/999_configure-patroni.sql
+    environment: 
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: testdb
+      INSTANCE_NAME: tsdb-access-admin
+      INSTANCE_TYPE: primary
+
+  tsdb-access-leader1:
+    image: tsdb-patroni
+    hostname: tsdb-access-leader1
+    container_name: tsdb-access-leader1
+    depends_on:
+      - zookeeper
+      - tsdb-data1
+      - tsdb-data2
+      - tsdb-data3
+      - tsdb-access-admin
+    ports:
+      - "5434:5432"
+      - "8009:8008"
+    volumes:
+      - tsdb-access-leader1-vol:/var/lib/postgresql/data
+    environment: 
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: testdb
+      INSTANCE_NAME: tsdb-access-leader1
+      INSTANCE_TYPE: replica
+  
+  tsdb-access-leader2:
+    image: tsdb-patroni
+    hostname: tsdb-access-leader2
+    container_name: tsdb-access-leader2
+    depends_on:
+      - zookeeper
+      - tsdb-data1
+      - tsdb-data2
+      - tsdb-data3
+      - tsdb-access-admin
+    ports:
+      - "5435:5432"
+      - "8010:8008"
+    volumes:
+      - tsdb-access-leader2-vol:/var/lib/postgresql/data
+    environment: 
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: testdb
+      INSTANCE_NAME: tsdb-access-leader2
+      INSTANCE_TYPE: replica
+
+  tsdb-data1:
+    image: timescale/timescaledb:2.4.2-pg13
+    hostname: dn1
+    container_name: tsdb-data1
+    ports:
+      - "5436:5432"
+    volumes:
+      - tsdb-data1-vol:/var/lib/postgresql/data
+      - ./trust-all.sh:/docker-entrypoint-initdb.d/888_trust-all.sh
+      - ./data-init.sh:/docker-entrypoint-initdb.d/999_data-init.sh
+    environment: 
+      POSTGRES_PASSWORD: password
+
+  tsdb-data2:
+    image: timescale/timescaledb:2.4.2-pg13
+    hostname: dn2
+    container_name: tsdb-data2
+    ports:
+      - "5437:5432"
+    volumes:
+      - tsdb-data2-vol:/var/lib/postgresql/data
+      - ./trust-all.sh:/docker-entrypoint-initdb.d/888_trust-all.sh
+      - ./data-init.sh:/docker-entrypoint-initdb.d/999_data-init.sh
+    environment: 
+      POSTGRES_PASSWORD: password
+
+  tsdb-data3:
+    image: timescale/timescaledb:2.4.2-pg13
+    hostname: dn3
+    container_name: tsdb-data3
+    ports:
+      - "5438:5432"
+    volumes:
+      - tsdb-data3-vol:/var/lib/postgresql/data
+      - ./trust-all.sh:/docker-entrypoint-initdb.d/888_trust-all.sh
+      - ./data-init.sh:/docker-entrypoint-initdb.d/999_data-init.sh
+    environment: 
+      POSTGRES_PASSWORD: password
+
+  tsdb-haproxy:
+    build: ./haproxy-timescale
+    image: tsdb-haproxy
+    hostname: tsdb-haproxy
+    container_name: tsdb-haproxy
+    depends_on:
+      - tsdb-access-admin
+      - tsdb-access-leader1
+      - tsdb-access-leader2
+    ports:
+      - "5000:5000"
+      - "5001:5001"
+      - "7000:7000"
+      
